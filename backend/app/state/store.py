@@ -97,6 +97,12 @@ class InMemoryStore:
 store = InMemoryStore()
 
 
+def reset_state() -> None:
+    """Reset in-memory state for deterministic tests."""
+    global store
+    store = InMemoryStore()
+
+
 def get_health() -> HealthResponse:
     return store.get_health()
 
