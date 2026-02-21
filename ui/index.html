@@ -8,24 +8,263 @@
       body {
         font-family: Arial, sans-serif;
         margin: 2rem;
+        color: #18181b;
       }
+
+      .layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+
       .card {
         border: 1px solid #d4d4d8;
         border-radius: 8px;
         padding: 1rem;
-        margin-bottom: 1rem;
+      }
+
+      .status {
+        margin: 0 0 1rem 0;
+        font-size: 0.9rem;
+        color: #3f3f46;
+      }
+
+      .error {
+        color: #b91c1c;
+        font-size: 0.9rem;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 100px;
+        padding: 0.5rem;
+        box-sizing: border-box;
+      }
+
+      button {
+        margin-top: 0.5rem;
+        padding: 0.45rem 0.75rem;
+        border: 1px solid #a1a1aa;
+        border-radius: 6px;
+        background: #fafafa;
+        cursor: pointer;
+      }
+
+      ul {
+        padding-left: 1.25rem;
+      }
+
+      .approval-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .row {
+        border: 1px solid #e4e4e7;
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-bottom: 0.6rem;
+      }
+
+      .muted {
+        color: #52525b;
+        font-size: 0.9rem;
       }
     </style>
   </head>
   <body>
     <h1>Chat + Approval Dashboard</h1>
-    <div class="card">
-      <h2>Chat</h2>
-      <p>Placeholder chat panel for local development.</p>
+    <p id="health-status" class="status">Checking backend health...</p>
+
+    <div class="layout">
+      <section class="card">
+        <h2>Chat</h2>
+        <form id="chat-form">
+          <label for="chat-message" class="muted">Message</label>
+          <textarea id="chat-message" name="message" required></textarea>
+          <button type="submit">Send message</button>
+        </form>
+        <p id="chat-error" class="error" hidden></p>
+        <h3>Conversations</h3>
+        <div id="conversations"></div>
+      </section>
+
+      <section class="card">
+        <h2>Approvals</h2>
+        <p id="approval-error" class="error" hidden></p>
+        <div id="approvals"></div>
+      </section>
     </div>
-    <div class="card">
-      <h2>Approvals</h2>
-      <p>Pending approvals will appear here.</p>
-    </div>
+
+    <script>
+      const API_BASE = "http://127.0.0.1:8000";
+
+      const healthEl = document.getElementById("health-status");
+      const chatForm = document.getElementById("chat-form");
+      const chatMessageEl = document.getElementById("chat-message");
+      const chatErrorEl = document.getElementById("chat-error");
+      const approvalErrorEl = document.getElementById("approval-error");
+      const conversationsEl = document.getElementById("conversations");
+      const approvalsEl = document.getElementById("approvals");
+      let activeConversationId = null;
+
+      async function request(path, options = {}) {
+        const response = await fetch(`${API_BASE}${path}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {}),
+          },
+          ...options,
+        });
+
+        if (!response.ok) {
+          const errorPayload = await response.json().catch(() => ({}));
+          const detail = errorPayload.detail || `Request failed: ${response.status}`;
+          throw new Error(detail);
+        }
+
+        return response.json();
+      }
+
+      function renderConversations(items) {
+        if (!items.length) {
+          conversationsEl.innerHTML = "<p class='muted'>No conversations yet.</p>";
+          return;
+        }
+
+        conversationsEl.innerHTML = items
+          .map(
+            (conversation) => `
+              <div class="row">
+                <div class="muted"><strong>ID:</strong> ${conversation.id}</div>
+                <ul>
+                  ${conversation.messages
+                    .map(
+                      (message) =>
+                        `<li><strong>${message.role}:</strong> ${message.content}</li>`
+                    )
+                    .join("")}
+                </ul>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      function approvalActions(approval) {
+        if (approval.status !== "pending") {
+          return `<div class="muted">Decision: ${approval.status}</div>`;
+        }
+
+        return `
+          <div class="approval-actions">
+            <button type="button" onclick="decideApproval('${approval.id}', 'approved')">Approve</button>
+            <button type="button" onclick="decideApproval('${approval.id}', 'rejected')">Reject</button>
+          </div>
+        `;
+      }
+
+      function renderApprovals(items) {
+        if (!items.length) {
+          approvalsEl.innerHTML = "<p class='muted'>No approvals found.</p>";
+          return;
+        }
+
+        approvalsEl.innerHTML = items
+          .map(
+            (approval) => `
+              <div class="row">
+                <div><strong>${approval.id}</strong> — ${approval.description}</div>
+                <div class="muted">Status: ${approval.status}</div>
+                ${approvalActions(approval)}
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      async function loadHealth() {
+        try {
+          const payload = await request("/health", { method: "GET" });
+          healthEl.textContent = `Backend health: ${payload.status}`;
+        } catch (error) {
+          healthEl.textContent = `Backend unavailable: ${error.message}`;
+          healthEl.classList.add("error");
+        }
+      }
+
+      async function loadConversations() {
+        try {
+          const payload = await request("/conversations", { method: "GET" });
+          renderConversations(payload);
+          activeConversationId = payload.length ? payload[payload.length - 1].id : null;
+          chatErrorEl.hidden = true;
+        } catch (error) {
+          chatErrorEl.textContent = error.message;
+          chatErrorEl.hidden = false;
+        }
+      }
+
+      async function loadApprovals() {
+        try {
+          const payload = await request("/approvals", { method: "GET" });
+          renderApprovals(payload);
+          approvalErrorEl.hidden = true;
+        } catch (error) {
+          approvalErrorEl.textContent = error.message;
+          approvalErrorEl.hidden = false;
+        }
+      }
+
+      async function postChat(message) {
+        const payload = { message };
+        if (activeConversationId) {
+          payload.conversation_id = activeConversationId;
+        }
+        return request("/chat", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      window.decideApproval = async function decideApproval(approvalId, decision) {
+        try {
+          await request(`/approvals/${approvalId}/decision`, {
+            method: "POST",
+            body: JSON.stringify({ decision }),
+          });
+          await loadApprovals();
+        } catch (error) {
+          approvalErrorEl.textContent = error.message;
+          approvalErrorEl.hidden = false;
+        }
+      };
+
+      chatForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = chatMessageEl.value.trim();
+        if (!message) {
+          chatErrorEl.textContent = "Message is required.";
+          chatErrorEl.hidden = false;
+          return;
+        }
+
+        try {
+          const chatResponse = await postChat(message);
+          activeConversationId = chatResponse.conversation.id;
+          chatMessageEl.value = "";
+          await loadConversations();
+          chatErrorEl.hidden = true;
+        } catch (error) {
+          chatErrorEl.textContent = error.message;
+          chatErrorEl.hidden = false;
+        }
+      });
+
+      (async function init() {
+        await loadHealth();
+        await Promise.all([loadConversations(), loadApprovals()]);
+      })();
+    </script>
   </body>
 </html>
