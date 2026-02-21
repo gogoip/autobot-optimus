@@ -57,24 +57,40 @@ class InMemoryStore:
         with self._lock:
             return list(self._state.approvals.values())
 
-    def create_chat(self, user_message: str) -> ChatResponse:
+    def create_chat(
+        self, user_message: str, conversation_id: str | None = None
+    ) -> ChatResponse | None:
         now = _utcnow()
-        conversation_id = str(uuid4())
         user = Message(role="user", content=user_message, created_at=now)
         assistant = Message(
             role="assistant",
             content=f"Received your message: {user_message}",
             created_at=now,
         )
-        conversation = Conversation(
-            id=conversation_id,
-            messages=[user, assistant],
-            created_at=now,
-            updated_at=now,
-        )
 
         with self._lock:
-            self._state.conversations[conversation_id] = conversation
+            if conversation_id is not None:
+                existing = self._state.conversations.get(conversation_id)
+                if existing is None:
+                    return None
+
+                updated = existing.model_copy(
+                    update={
+                        "messages": [*existing.messages, user, assistant],
+                        "updated_at": now,
+                    }
+                )
+                self._state.conversations[conversation_id] = updated
+                return ChatResponse(conversation=updated)
+
+            new_conversation_id = str(uuid4())
+            conversation = Conversation(
+                id=new_conversation_id,
+                messages=[user, assistant],
+                created_at=now,
+                updated_at=now,
+            )
+            self._state.conversations[new_conversation_id] = conversation
 
         return ChatResponse(conversation=conversation)
 
@@ -115,8 +131,10 @@ def list_approvals() -> list[Approval]:
     return store.list_approvals()
 
 
-def create_chat(user_message: str) -> ChatResponse:
-    return store.create_chat(user_message)
+def create_chat(
+    user_message: str, conversation_id: str | None = None
+) -> ChatResponse | None:
+    return store.create_chat(user_message=user_message, conversation_id=conversation_id)
 
 
 def set_approval_decision(

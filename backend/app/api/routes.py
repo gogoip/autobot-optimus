@@ -33,7 +33,13 @@ def approvals() -> list[Approval]:
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
-    return store.create_chat(user_message=payload.message)
+    result = store.create_chat(
+        user_message=payload.message,
+        conversation_id=payload.conversation_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return result
 
 
 @router.post(

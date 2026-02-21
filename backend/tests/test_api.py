@@ -47,6 +47,30 @@ def test_chat_creates_conversation() -> None:
     assert body["conversation"]["messages"][1]["role"] == "assistant"
 
 
+def test_chat_appends_to_existing_conversation() -> None:
+    created = client.post("/chat", json={"message": "hello"}).json()["conversation"]
+    response = client.post(
+        "/chat",
+        json={"message": "follow-up", "conversation_id": created["id"]},
+    )
+
+    assert response.status_code == 200
+    conversation = response.json()["conversation"]
+    assert conversation["id"] == created["id"]
+    assert len(conversation["messages"]) == 4
+    assert conversation["messages"][-2]["content"] == "follow-up"
+
+
+def test_chat_rejects_unknown_conversation() -> None:
+    response = client.post(
+        "/chat",
+        json={"message": "follow-up", "conversation_id": "missing"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Conversation not found"}
+
+
 def test_chat_validation_error_for_empty_message() -> None:
     response = client.post("/chat", json={"message": ""})
 
