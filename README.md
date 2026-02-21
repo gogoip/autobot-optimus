@@ -27,3 +27,18 @@ The script will:
 ```bash
 python scripts/run_local.py
 ```
+
+
+## Python dependencies
+
+Install runtime and test dependencies before starting services:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Run backend API tests:
+
+```bash
+pytest backend/tests/test_api.py
+```
